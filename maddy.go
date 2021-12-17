@@ -51,6 +51,8 @@ import (
 	_ "github.com/foxcpp/maddy/internal/check/dkim"
 	_ "github.com/foxcpp/maddy/internal/check/dns"
 	_ "github.com/foxcpp/maddy/internal/check/dnsbl"
+	_ "github.com/foxcpp/maddy/internal/check/domainbl"
+	_ "github.com/foxcpp/maddy/internal/check/geobl"
 	_ "github.com/foxcpp/maddy/internal/check/milter"
 	_ "github.com/foxcpp/maddy/internal/check/requiretls"
 	_ "github.com/foxcpp/maddy/internal/check/rspamd"
