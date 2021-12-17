@@ -290,6 +290,20 @@ func (bl *DNSBL) checkList(ctx context.Context, list List, ip net.IP, ehlo, mail
 	return nil
 }
 
+func (bl *DNSBL) explainListing(listedOn []string, reasons []string) error {
+	b := strings.Builder{}
+	for k, on := range listedOn {
+		if k != 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(on)
+		b.WriteString(": ")
+		b.WriteString(reasons[k])
+	}
+
+	return errors.New(b.String())
+}
+
 func (bl *DNSBL) checkLists(ctx context.Context, ip net.IP, ehlo, mailFrom string) module.CheckResult {
 	var (
 		eg = errgroup.Group{}
@@ -343,7 +357,7 @@ func (bl *DNSBL) checkLists(ctx context.Context, ip net.IP, ehlo, mailFrom strin
 				Code:         554,
 				EnhancedCode: exterrors.EnhancedCode{5, 7, 0},
 				Message:      "Client identity is listed in the used DNSBL",
-				Err:          err,
+				Err:          bl.explainListing(listedOn, reasons),
 				CheckName:    "dnsbl",
 			},
 		}
@@ -355,7 +369,7 @@ func (bl *DNSBL) checkLists(ctx context.Context, ip net.IP, ehlo, mailFrom strin
 				Code:         554,
 				EnhancedCode: exterrors.EnhancedCode{5, 7, 0},
 				Message:      "Client identity is listed in the used DNSBL",
-				Err:          err,
+				Err:          bl.explainListing(listedOn, reasons),
 				CheckName:    "dnsbl",
 			},
 		}
