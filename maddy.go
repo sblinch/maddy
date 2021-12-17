@@ -54,6 +54,7 @@ import (
 	_ "github.com/foxcpp/maddy/internal/check/domainbl"
 	_ "github.com/foxcpp/maddy/internal/check/geobl"
 	_ "github.com/foxcpp/maddy/internal/check/milter"
+	_ "github.com/foxcpp/maddy/internal/check/pattern"
 	_ "github.com/foxcpp/maddy/internal/check/requiretls"
 	_ "github.com/foxcpp/maddy/internal/check/rspamd"
 	_ "github.com/foxcpp/maddy/internal/check/spf"
