@@ -31,6 +31,7 @@ import (
 	"github.com/foxcpp/maddy/framework/address"
 	"github.com/foxcpp/maddy/framework/buffer"
 	"github.com/foxcpp/maddy/framework/config"
+	modconfig "github.com/foxcpp/maddy/framework/config/module"
 	"github.com/foxcpp/maddy/framework/dns"
 	"github.com/foxcpp/maddy/framework/exterrors"
 	"github.com/foxcpp/maddy/framework/log"
@@ -64,6 +65,7 @@ type DNSBL struct {
 
 	quarantineThres int
 	rejectThres     int
+	errAction       modconfig.FailAction
 
 	resolver dns.Resolver
 	log      log.Logger
@@ -92,6 +94,11 @@ func (bl *DNSBL) Init(cfg *config.Map) error {
 	cfg.Bool("check_early", false, false, &bl.checkEarly)
 	cfg.Int("quarantine_threshold", false, false, 1, &bl.quarantineThres)
 	cfg.Int("reject_threshold", false, false, 9999, &bl.rejectThres)
+	// action to perform on error in connecting to dnsbl
+	cfg.Custom("error_action", false, false,
+		func() (interface{}, error) {
+			return modconfig.FailAction{Reject: true}, nil
+		}, modconfig.FailActionDirective, &bl.errAction)
 	cfg.AllowUnknown()
 	unknown, err := cfg.Process()
 	if err != nil {
@@ -127,6 +134,7 @@ func (bl *DNSBL) readListCfg(node config.Node) error {
 	cfg.Bool("mailfrom", false, defaultBL.EHLO, &listCfg.MAILFROM)
 	cfg.Int("score", false, false, 1, &listCfg.ScoreAdj)
 	cfg.StringList("responses", false, false, []string{"127.0.0.1/24"}, &responseNets)
+
 	if _, err := cfg.Process(); err != nil {
 		return err
 	}
@@ -337,17 +345,15 @@ func (bl *DNSBL) checkLists(ctx context.Context, ip net.IP, ehlo, mailFrom strin
 
 	err := eg.Wait()
 	if err != nil {
-		// Lookup error for BL, hard-fail.
-		return module.CheckResult{
-			Reject: true,
+		// Lookup error for BL, perform error action.
+		return bl.errAction.Apply(module.CheckResult{
 			Reason: &exterrors.SMTPError{
 				Code:         exterrors.SMTPCode(err, 451, 554),
 				EnhancedCode: exterrors.SMTPEnchCode(err, exterrors.EnhancedCode{0, 7, 0}),
 				Message:      "DNS error during policy check",
 				Err:          err,
 				CheckName:    "dnsbl",
-			},
-		}
+			}})
 	}
 
 	if score >= bl.rejectThres {
