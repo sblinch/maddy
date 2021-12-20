@@ -56,6 +56,17 @@ type EarlyCheck interface {
 	CheckConnection(ctx context.Context, state *smtp.ConnectionState) error
 }
 
+// SafelistCheck is an optional module interface that can be implemented
+// by modules implementing Check.
+//
+// It is used to unconditionally allow a message, ignoring the results of
+// any other checks at the same or narrower scope. (That is, global safelist
+// checks can override both global and per-source checks, but per-source
+// safelist checks can not override global checks.)
+type SafelistCheck interface {
+	CheckSafelist(ctx context.Context, msgMeta *MsgMetadata) SafelistCheckResult
+}
+
 type CheckState interface {
 	// CheckConnection is executed once when client sends a new message.
 	//
@@ -102,6 +113,16 @@ type CheckResult struct {
 	// AuthResult is the information that is supposed to
 	// be included in Authentication-Results header.
 	AuthResult []authres.Result
+
+	// Header is the header fields that should be
+	// added to the header after all checks.
+	Header textproto.Header
+}
+
+type SafelistCheckResult struct {
+	// Safelist is the flag that specifies that the message should be
+	// unconditionally permitted, ignoring all other checks.
+	Safelist bool
 
 	// Header is the header fields that should be
 	// added to the header after all checks.

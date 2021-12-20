@@ -53,7 +53,8 @@ type checkRunner struct {
 
 	states map[module.Check]module.CheckState
 
-	mergedRes module.CheckResult
+	safelisted bool
+	mergedRes  module.CheckResult
 }
 
 func newCheckRunner(msgMeta *module.MsgMetadata, log log.Logger, r dns.Resolver) *checkRunner {
@@ -68,6 +69,10 @@ func newCheckRunner(msgMeta *module.MsgMetadata, log log.Logger, r dns.Resolver)
 }
 
 func (cr *checkRunner) checkStates(ctx context.Context, checks []module.Check) ([]module.CheckState, error) {
+	if cr.safelisted {
+		return []module.CheckState{}, nil
+	}
+
 	states := make([]module.CheckState, 0, len(checks))
 	newStates := make([]module.CheckState, 0, len(checks))
 	newStatesMap := make(map[module.Check]module.CheckState, len(checks))
@@ -236,6 +241,30 @@ func (cr *checkRunner) runAndMergeResults(states []module.CheckState, runner fun
 	}
 
 	return nil
+}
+
+func (cr *checkRunner) checkSafelist(ctx context.Context, checks []module.Check, msgMeta *module.MsgMetadata) bool {
+	for _, check := range checks {
+		safelistCheck, ok := check.(module.SafelistCheck)
+		if ok {
+			safelistResult := safelistCheck.CheckSafelist(ctx, msgMeta)
+			if safelistResult.Header.Len() != 0 {
+				for field := safelistResult.Header.Fields(); field.Next(); {
+					formatted, err := field.Raw()
+					if err != nil {
+						cr.log.Error("malformed header field added by check", err)
+					}
+					cr.mergedRes.Header.AddRaw(formatted)
+				}
+			}
+
+			if safelistResult.Safelist {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (cr *checkRunner) checkConnSender(ctx context.Context, checks []module.Check, mailFrom string) error {
