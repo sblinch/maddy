@@ -27,7 +27,7 @@ import (
 	"github.com/foxcpp/maddy/framework/module"
 )
 
-func (s *state) checkEmailAddress(ctx context.Context, emailTable module.Table, email string) (matchResult, error) {
+func (c *Check) checkEmailAddress(ctx context.Context, emailTable module.Table, email string) (matchResult, error) {
 	if len(email) == 0 {
 		return matchResult{}, nil
 	}
@@ -64,13 +64,13 @@ func (s *state) checkEmailAddress(ctx context.Context, emailTable module.Table, 
 	return matchResult{}, nil
 }
 
-func (s *state) checkEmailTable(ctx context.Context, emailTable module.Table, key, emailAddress string, normFunc func(string) (string, error)) (matchResult, error) {
+func (c *Check) checkEmailTable(ctx context.Context, emailTable module.Table, key, emailAddress string, normFunc func(string) (string, error)) (matchResult, error) {
 	normEmailAddress, err := normFunc(emailAddress)
 	if err != nil {
 		return matchResult{}, err
 	}
 
-	result, err := s.checkEmailAddress(ctx, emailTable, normEmailAddress)
+	result, err := c.checkEmailAddress(ctx, emailTable, normEmailAddress)
 	if err != nil {
 		return matchResult{}, err
 	} else if result.Matches {

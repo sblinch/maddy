@@ -160,7 +160,7 @@ func (s *state) matchCheckResult(r matchResult) module.CheckResult {
 			CheckName: modName,
 			Misc:      map[string]interface{}{"pattern-type": r.Type, "pattern-matched": r.Pattern, "pattern-value": r.Value},
 		}
-	case "ignore":
+	case "ignore", "safelist":
 		// ignore
 	default:
 		cr = s.errorCheckResult(ErrInvalidAction, map[string]interface{}{"action": r.Action})
@@ -241,6 +241,37 @@ func (c *Check) checkMsgMeta(ctx context.Context, msgMeta *module.MsgMetadata) (
 	}
 
 	return c.checkAddress(ctx, remoteAddr)
+}
+
+func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) module.SafelistCheckResult {
+	result, _ := c.checkMsgMeta(ctx, msgMeta)
+
+	if !(result.Matches && result.Action == "safelist") {
+		result, _ = c.checkEmailTable(ctx, c.matchSender, "mail-from", msgMeta.OriginalFrom, c.emailNorm)
+		if result.Matches {
+			result.Type = "sender"
+		}
+	}
+	if !(result.Matches && result.Action == "safelist") {
+		for _, recipient := range msgMeta.OriginalRcpts {
+			result, _ = c.checkEmailTable(ctx, c.matchRecipient, "rcpt-to", recipient, c.emailNorm)
+			if result.Matches {
+				result.Type = "sender"
+			}
+		}
+	}
+
+	if result.Matches && result.Action == "safelist" {
+		c.log.DebugMsg("message matches safelisted pattern", "type", result.Type, "pattern", result.Pattern, "value", result.Value)
+		h := textproto.Header{}
+		h.Set("X-Safelist-Pattern", result.Type+" "+result.Value)
+		return module.SafelistCheckResult{
+			Safelist: true,
+			Header:   h,
+		}
+	}
+
+	return module.SafelistCheckResult{}
 }
 
 // CheckConnection implements module.EarlyCheck.
