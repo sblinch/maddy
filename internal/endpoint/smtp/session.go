@@ -88,6 +88,7 @@ type Session struct {
 	msgCtx      context.Context
 	msgTask     *trace.Task
 	mailFrom    string
+	rcptTo      []string
 	opts        smtp.MailOptions
 	msgMeta     *module.MsgMetadata
 	delivery    module.Delivery
@@ -329,6 +330,70 @@ func (s *Session) fetchRDNSName(ctx context.Context) {
 	s.connState.RDNSName.Set(name, nil)
 }
 
+func (s *Session) logDeliveryAttempt(err error) {
+	mod := "internal"
+	disposition := "permfail"
+	reason := ""
+	misc := map[string]interface{}{}
+	if err == nil {
+		disposition = "accepted"
+		mod = s.endp.Name()
+
+	} else if e, ok := err.(*exterrors.SMTPError); ok {
+		if e.CheckName != "" {
+			mod = e.CheckName
+		} else if e.ModifierName != "" {
+			mod = e.ModifierName
+		} else if e.TargetName != "" {
+			mod = e.TargetName
+		}
+		if e.Temporary() {
+			disposition = "tempfail"
+		} else {
+			disposition = "permfail"
+		}
+		b := strings.Builder{}
+		if e.Code != 0 {
+			b.WriteString(strconv.Itoa(e.Code))
+			b.WriteByte(' ')
+		}
+		if e.EnhancedCode[0] != 0 {
+			b.WriteString(e.EnhancedCode.FormatLog())
+			b.WriteByte(' ')
+		}
+		if e.Reason != "" {
+			b.WriteString(e.Reason)
+		} else if e.Err != nil {
+			b.WriteString(e.Err.Error())
+		} else {
+			b.WriteString(e.Message)
+		}
+		reason = b.String()
+
+		misc = e.Misc
+	} else {
+		reason = err.Error()
+	}
+
+	msgMetaID := ""
+	if s.msgMeta != nil {
+		msgMetaID = s.msgMeta.ID
+	}
+
+	remoteAddr, _, _ := net.SplitHostPort(s.connState.RemoteAddr.String())
+	s.log.Msg("delivery",
+		"id", msgMetaID,
+		"from", s.mailFrom,
+		"rcpt", s.rcptTo,
+		"remote", remoteAddr,
+		"helo", s.connState.Hostname,
+		"module", mod,
+		"disposition", disposition,
+		"reason", reason,
+		"misc", misc,
+	)
+}
+
 func (s *Session) Rcpt(to string) error {
 	s.msgLock.Lock()
 	defer s.msgLock.Unlock()
@@ -349,6 +414,7 @@ func (s *Session) Rcpt(to string) error {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				s.log.Error("MAIL FROM error (deferred)", err, "rcpt", to, "msg_id", msgID)
 			}
+			s.logDeliveryAttempt(err)
 			s.deliveryErr = s.endp.wrapErr(msgID, !s.opts.UTF8, "RCPT", err)
 			return s.deliveryErr
 		}
@@ -365,8 +431,11 @@ func (s *Session) Rcpt(to string) error {
 				s.log.Msg("too many RCPT errors, possible dictonary attack", "src_ip", s.connState.RemoteAddr, "msg_id", s.msgMeta.ID)
 			}
 		}
+		s.logDeliveryAttempt(err)
 		return s.endp.wrapErr(s.msgMeta.ID, !s.opts.UTF8, "RCPT", err)
 	}
+	s.rcptTo = append(s.rcptTo, to)
+
 	s.endp.Log.Msg("RCPT ok", "rcpt", to, "msg_id", s.msgMeta.ID)
 	return nil
 }
@@ -455,6 +524,7 @@ func (s *Session) Data(r io.Reader) error {
 
 	header, buf, err := s.prepareBody(r)
 	if err != nil {
+		s.logDeliveryAttempt(err)
 		return wrapErr(err)
 	}
 	defer func() {
@@ -467,6 +537,7 @@ func (s *Session) Data(r io.Reader) error {
 	}()
 
 	if err := s.checkRoutingLoops(header); err != nil {
+		s.logDeliveryAttempt(err)
 		return wrapErr(err)
 	}
 
@@ -475,14 +546,17 @@ func (s *Session) Data(r io.Reader) error {
 	}
 
 	if err := s.delivery.Body(bodyCtx, header, buf); err != nil {
+		s.logDeliveryAttempt(err)
 		return wrapErr(err)
 	}
 
 	if err := s.delivery.Commit(bodyCtx); err != nil {
+		s.logDeliveryAttempt(err)
 		return wrapErr(err)
 	}
 
 	s.log.Msg("accepted", "msg_id", s.msgMeta.ID)
+	s.logDeliveryAttempt(nil)
 
 	return nil
 }
