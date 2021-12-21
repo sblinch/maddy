@@ -68,6 +68,7 @@ import (
 	_ "github.com/foxcpp/maddy/internal/libdns"
 	_ "github.com/foxcpp/maddy/internal/modify"
 	_ "github.com/foxcpp/maddy/internal/modify/dkim"
+	_ "github.com/foxcpp/maddy/internal/storage/blob/crypto"
 	_ "github.com/foxcpp/maddy/internal/storage/blob/fs"
 	_ "github.com/foxcpp/maddy/internal/storage/blob/s3"
 	_ "github.com/foxcpp/maddy/internal/storage/imapsql"
