@@ -71,6 +71,7 @@ import (
 	_ "github.com/foxcpp/maddy/internal/storage/blob/crypto"
 	_ "github.com/foxcpp/maddy/internal/storage/blob/fs"
 	_ "github.com/foxcpp/maddy/internal/storage/blob/s3"
+	_ "github.com/foxcpp/maddy/internal/storage/blob/table"
 	_ "github.com/foxcpp/maddy/internal/storage/imapsql"
 	_ "github.com/foxcpp/maddy/internal/table"
 	_ "github.com/foxcpp/maddy/internal/target/queue"
