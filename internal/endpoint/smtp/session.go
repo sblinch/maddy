@@ -335,43 +335,67 @@ func (s *Session) logDeliveryAttempt(err error) {
 	disposition := "permfail"
 	reason := ""
 	misc := map[string]interface{}{}
+
+	var (
+		errESMTP *exterrors.SMTPError
+		errSMTP  *smtp.SMTPError
+	)
 	if err == nil {
 		disposition = "accepted"
 		mod = s.endp.Name()
 
-	} else if e, ok := err.(*exterrors.SMTPError); ok {
-		if e.CheckName != "" {
-			mod = e.CheckName
-		} else if e.ModifierName != "" {
-			mod = e.ModifierName
-		} else if e.TargetName != "" {
-			mod = e.TargetName
+	} else if errors.As(err, &errESMTP) {
+		if errESMTP.CheckName != "" {
+			mod = errESMTP.CheckName
+		} else if errESMTP.ModifierName != "" {
+			mod = errESMTP.ModifierName
+		} else if errESMTP.TargetName != "" {
+			mod = errESMTP.TargetName
 		}
-		if e.Temporary() {
+		if errESMTP.Temporary() {
 			disposition = "tempfail"
 		} else {
 			disposition = "permfail"
 		}
 		b := strings.Builder{}
-		if e.Code != 0 {
-			b.WriteString(strconv.Itoa(e.Code))
+		if errESMTP.Code != 0 {
+			b.WriteString(strconv.Itoa(errESMTP.Code))
 			b.WriteByte(' ')
 		}
-		if e.EnhancedCode[0] != 0 {
-			b.WriteString(e.EnhancedCode.FormatLog())
+		if errESMTP.EnhancedCode[0] != 0 {
+			b.WriteString(errESMTP.EnhancedCode.FormatLog())
 			b.WriteByte(' ')
 		}
-		if e.Reason != "" {
-			b.WriteString(e.Reason)
-		} else if e.Err != nil {
-			b.WriteString(e.Err.Error())
+		if errESMTP.Reason != "" {
+			b.WriteString(errESMTP.Reason)
+		} else if errESMTP.Err != nil {
+			b.WriteString(errESMTP.Err.Error())
 		} else {
-			b.WriteString(e.Message)
+			b.WriteString(errESMTP.Message)
 		}
 		reason = b.String()
 
-		misc = e.Misc
+		misc = errESMTP.Misc
+	} else if errors.As(err, &errSMTP) {
+		if errSMTP.Temporary() {
+			disposition = "tempfail"
+		} else {
+			disposition = "permfail"
+		}
+		b := strings.Builder{}
+		if errSMTP.Code != 0 {
+			b.WriteString(strconv.Itoa(errSMTP.Code))
+			b.WriteByte(' ')
+		}
+		if errSMTP.EnhancedCode[0] != 0 {
+			b.WriteString(fmt.Sprintf("%d.%d.%d", errSMTP.EnhancedCode[0], errSMTP.EnhancedCode[1], errSMTP.EnhancedCode[2]))
+			b.WriteByte(' ')
+		}
+		b.WriteString(errSMTP.Message)
+		reason = b.String()
+
 	} else {
+		misc["error_type"] = fmt.Sprintf("%T", err)
 		reason = err.Error()
 	}
 
