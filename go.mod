@@ -5,6 +5,8 @@ go 1.17
 require (
 	blitiri.com.ar/go/spf v1.4.0
 	github.com/GehirnInc/crypt v0.0.0-20200316065508-bb7000b8a962
+	github.com/IncSW/geoip2 v0.0.0-00010101000000-000000000000
+	github.com/baruwa-enterprise/spamd-client v0.0.0-00010101000000-000000000000
 	github.com/caddyserver/certmagic v0.16.1
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-imap-compress v0.0.0-20201103190257-14809af1d1b9
@@ -43,13 +45,16 @@ require (
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/miekg/dns v1.1.50
 	github.com/minio/minio-go/v7 v7.0.29
+	github.com/minio/sio v0.3.0
 	github.com/prometheus/client_golang v1.12.2
 	github.com/urfave/cli/v2 v2.10.2
+	github.com/weppos/publicsuffix-go v0.20.0
 	go.uber.org/zap v1.21.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
 	golang.org/x/net v0.0.0-20220622184535-263ec571b305
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
 	golang.org/x/text v0.3.7
+	mvdan.cc/xurls/v2 v2.4.0
 )
 
 require (
@@ -113,3 +118,8 @@ require (
 )
 
 replace github.com/emersion/go-imap => github.com/foxcpp/go-imap v1.0.0-beta.1.0.20220623182312-df940c324887
+
+replace (
+	github.com/IncSW/geoip2 => ../../sblinch/geoip2
+	github.com/baruwa-enterprise/spamd-client => ../../sblinch/spamd-client
+)
