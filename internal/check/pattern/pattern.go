@@ -182,7 +182,7 @@ func (s *state) errorCheckResult(err error, misc map[string]interface{}) module.
 
 func (c *Check) checkAddress(ctx context.Context, addr string) (matchResult, error) {
 	key := "remote-addr"
-	c.log.DebugMsg("checking host", "host", addr)
+	c.log.DebugMsg("checking host", "host", addr, "in", ctx.Value(entrypointKey{}))
 	result, err := checkHostTable(ctx, c.matchHost, key, addr)
 	if err != nil {
 		return matchResult{}, err
@@ -244,6 +244,7 @@ func (c *Check) checkMsgMeta(ctx context.Context, msgMeta *module.MsgMetadata) (
 }
 
 func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) module.SafelistCheckResult {
+	ctx = context.WithValue(ctx, entrypointKey{}, "check-safelist")
 	result, _ := c.checkMsgMeta(ctx, msgMeta)
 
 	if !(result.Matches && result.Action == "safelist") {
@@ -262,7 +263,7 @@ func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) 
 	}
 
 	if result.Matches && result.Action == "safelist" {
-		c.log.DebugMsg("message matches safelisted pattern", "type", result.Type, "pattern", result.Pattern, "value", result.Value)
+		c.log.DebugMsg("message matches safelisted pattern", "type", result.Type, "pattern", result.Pattern, "value", result.Value, "in", ctx.Value(entrypointKey{}))
 		h := textproto.Header{}
 		h.Set("X-Safelist-Pattern", result.Type+" "+result.Value)
 		return module.SafelistCheckResult{
@@ -274,8 +275,12 @@ func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) 
 	return module.SafelistCheckResult{}
 }
 
-// CheckConnection implements module.EarlyCheck.
+type entrypointKey struct{}
+
+// CheckConnection implements module.EarlyCheck, and allows rejecting connections from a host with a given IP address
+// before the SMTP session even begins.
 func (c *Check) CheckConnection(ctx context.Context, state *smtp.ConnectionState) error {
+	ctx = context.WithValue(ctx, entrypointKey{}, "check-connection")
 	remoteAddrPort := state.RemoteAddr.String()
 	remoteAddr, _, err := net.SplitHostPort(remoteAddrPort)
 	if err != nil {
@@ -283,21 +288,23 @@ func (c *Check) CheckConnection(ctx context.Context, state *smtp.ConnectionState
 	}
 	result, err := c.checkAddress(ctx, remoteAddr)
 	if err != nil {
-		c.log.DebugMsg("error checking host address", "host", remoteAddr, "error", err)
+		c.log.DebugMsg("error checking host address", "host", remoteAddr, "error", err, "in", ctx.Value(entrypointKey{}))
 		if !c.errAction.Reject {
 			err = nil
 		}
 		return err
 	}
 	if result.Matches && result.Action == "reject" {
-		c.log.DebugMsg("remote address matched reject pattern; rejecting", "pattern-type", "host", "pattern-matched", result.Pattern, "pattern-value", result.Value)
+		c.log.DebugMsg("remote address matched reject pattern; rejecting", "pattern-type", "host", "pattern-matched", result.Pattern, "pattern-value", result.Value, "in", ctx.Value(entrypointKey{}))
 		return fmt.Errorf("host %s matches pattern %s", remoteAddr, result.Pattern)
 	}
 
 	return nil
 }
 
+// CheckConnection checks the msgMeta properties of a message against the pattern tables.
 func (s *state) CheckConnection(ctx context.Context) module.CheckResult {
+	ctx = context.WithValue(ctx, entrypointKey{}, "state.check-connection")
 	result, err := s.c.checkMsgMeta(ctx, s.msgMeta)
 	if err != nil {
 		return s.errorCheckResult(err, map[string]interface{}{"match": "host", "key": result.Pattern})
@@ -310,7 +317,9 @@ func (s *state) CheckConnection(ctx context.Context) module.CheckResult {
 	return module.CheckResult{}
 }
 
+// CheckSender checks the MAIL FROM: sender of the message against the sender pattern table.
 func (s *state) CheckSender(ctx context.Context, fromEmail string) module.CheckResult {
+	ctx = context.WithValue(ctx, entrypointKey{}, "state.check-sender")
 	if s.msgMeta.Conn == nil {
 		s.log.Msg("skipping locally generated message")
 		return module.CheckResult{}
@@ -345,7 +354,9 @@ func (s *state) checkSenderAddressPattern(ctx context.Context, emailAddress stri
 	return module.CheckResult{}
 }
 
+// CheckRcpt checks the RCPT TO: recipient of the message against the recipient pattern table.
 func (s *state) CheckRcpt(ctx context.Context, toEmail string) module.CheckResult {
+	ctx = context.WithValue(ctx, entrypointKey{}, "state.check-rcpt")
 	key := "rcpt-to"
 	result, err := s.c.checkEmailTable(ctx, s.c.matchRecipient, key, toEmail, s.c.emailNorm)
 	if err != nil {
