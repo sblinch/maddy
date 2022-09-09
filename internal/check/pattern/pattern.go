@@ -63,6 +63,7 @@ func New(_, instName string, _, inlineArgs []string) (module.Module, error) {
 	return &Check{
 		instName: instName,
 		log:      log.Logger{Name: modName, Debug: log.DefaultLogger.Debug},
+		reCache:  make(map[string]*regexp.Regexp),
 	}, nil
 }
 
@@ -141,6 +142,14 @@ func (c *Check) CheckStateForMsg(_ context.Context, msgMeta *module.MsgMetadata)
 
 var ErrInvalidAction = errors.New("invalid action")
 
+func (s *state) abbreviate(str string) string {
+	if len(str) > 128 {
+		return str[0:124] + " ..."
+	} else {
+		return str
+	}
+}
+
 func (s *state) matchCheckResult(r matchResult) module.CheckResult {
 	cr := module.CheckResult{}
 
@@ -152,13 +161,13 @@ func (s *state) matchCheckResult(r matchResult) module.CheckResult {
 			EnhancedCode: exterrors.EnhancedCode{5, 7, 1},
 			Message:      "Message rejected due to local policy",
 			CheckName:    modName,
-			Misc:         map[string]interface{}{"pattern-type": r.Type, "pattern-matched": r.Pattern, "pattern-value": r.Value},
+			Misc:         map[string]interface{}{"pattern-type": r.Type, "pattern-matched": s.abbreviate(r.Pattern), "pattern-value": r.Value},
 		}
 	case "quarantine":
 		cr.Quarantine = true
 		cr.Reason = &exterrors.SMTPError{
 			CheckName: modName,
-			Misc:      map[string]interface{}{"pattern-type": r.Type, "pattern-matched": r.Pattern, "pattern-value": r.Value},
+			Misc:      map[string]interface{}{"pattern-type": r.Type, "pattern-matched": s.abbreviate(r.Pattern), "pattern-value": r.Value},
 		}
 	case "ignore", "safelist":
 		// ignore
