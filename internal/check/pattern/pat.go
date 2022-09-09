@@ -122,7 +122,7 @@ func valueMatchesPattern(reCache map[string]*regexp.Regexp, value, pattern strin
 				var err error
 				re, err = regexp.Compile(patternRegexp)
 				if err != nil {
-					return false, fmt.Errorf("regexp pattern %q: %v", pattern, err)
+					return false, fmt.Errorf("regexp pattern %q: %v", abbreviate(pattern), err)
 				}
 				reCache[pattern] = re
 			}
