@@ -369,6 +369,11 @@ func (cr *checkRunner) applyResults(hostname string, header *textproto.Header) e
 		}
 		header.AddRaw(formatted)
 	}
+
+	if cr.msgMeta.Quarantine {
+		header.Set("X-Spam-Flag", "Yes")
+	}
+
 	return nil
 }
 
