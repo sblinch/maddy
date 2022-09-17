@@ -262,11 +262,12 @@ func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) 
 			result.Type = "sender"
 		}
 	}
+
 	if !(result.Matches && result.Action == "safelist") {
 		for _, recipient := range msgMeta.OriginalRcpts {
 			result, _ = c.checkEmailTable(ctx, c.matchRecipient, "rcpt-to", recipient, c.emailNorm)
 			if result.Matches {
-				result.Type = "sender"
+				result.Type = "recipient"
 			}
 		}
 	}
@@ -276,8 +277,9 @@ func (c *Check) CheckSafelist(ctx context.Context, msgMeta *module.MsgMetadata) 
 		h := textproto.Header{}
 		h.Set("X-Safelist-Pattern", result.Type+" "+result.Value)
 		return module.SafelistCheckResult{
-			Safelist: true,
-			Header:   h,
+			Safelist:            true,
+			RequiresAuthResults: result.Type == "sender",
+			Header:              h,
 		}
 	}
 
