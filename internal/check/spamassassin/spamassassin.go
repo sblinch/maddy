@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	spamc "github.com/baruwa-enterprise/spamd-client/pkg"
 	saresponse "github.com/baruwa-enterprise/spamd-client/pkg/response"
@@ -97,6 +98,8 @@ func (c *Check) Init(cfg *config.Map) error {
 	var (
 		insecureTLS bool
 		compression bool
+		connTimeout time.Duration
+		cmdTimeout  time.Duration
 	)
 
 	// enable debug logging
@@ -111,6 +114,10 @@ func (c *Check) Init(cfg *config.Map) error {
 	cfg.String("spamd_user", false, false, c.spamdUser, &c.spamdUser)
 	// unix = use spamd_user; username = use the username portion of the recipient address; email = use the entire recipient address
 	cfg.Enum("spamd_user_type", false, false, []string{"unix", "username", "email"}, "unix", &c.spamdUserType)
+	// timeout for connecting to the SA server
+	cfg.Duration("connect_timeout", false, false, 3*time.Second, &connTimeout)
+	// maximum time for SA to process a message and return a result
+	cfg.Duration("command_timeout", false, false, 8*time.Second, &cmdTimeout)
 
 	// by default, we let SpamAssassin's configuration decide the threshold and we simply perform spam_action (below)
 	// when SA decides the message is spam; alternately, specify `spam_action ignore` and set these thresholds instead
@@ -180,6 +187,10 @@ func (c *Check) Init(cfg *config.Map) error {
 			if insecureTLS {
 				cli.DisableTLSVerification()
 			}
+			cli.SetConnTimeout(connTimeout)
+			cli.SetCmdTimeout(cmdTimeout)
+			cli.SetConnRetries(0)
+			cli.SetConnSleep(0)
 		} else {
 			cli = nil
 		}
@@ -289,19 +300,22 @@ func (s *state) getSpamdUser() (string, error) {
 
 func (s *state) CheckBody(ctx context.Context, hdr textproto.Header, body buffer.Buffer) module.CheckResult {
 	bodyR, err := body.Open()
-	if err != nil {
-		return module.CheckResult{
-			Reject: true,
-			Reason: exterrors.WithFields(err, map[string]interface{}{"check": modName}),
-		}
-	}
 
 	var buf bytes.Buffer
-	if err := textproto.WriteHeader(&buf, hdr); err != nil {
-		return module.CheckResult{
-			Reject: true,
-			Reason: exterrors.WithFields(err, map[string]interface{}{"check": modName}),
-		}
+	if err == nil {
+		err = textproto.WriteHeader(&buf, hdr)
+	}
+
+	if err != nil {
+		return s.c.ioErrAction.Apply(module.CheckResult{
+			Reason: &exterrors.SMTPError{
+				Code:         451,
+				EnhancedCode: exterrors.EnhancedCode{4, 7, 0},
+				Message:      "Internal error during policy check",
+				CheckName:    modName,
+				Err:          err,
+			},
+		})
 	}
 
 	c := s.c.clientPool.Get().(*spamc.Client)

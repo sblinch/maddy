@@ -51,6 +51,16 @@
 //
 // Compress messages before sending them to SpamAssassin.
 //
+// *Syntax:* connect_timeout _timeout_ ++
+// *Default:* 3.0
+//
+// Timeout for connecting to SpamAssassin.
+//
+// *Syntax:* command_timeout _timeout_ ++
+// *Default:* 8.0
+//
+// Timeout for SpamAssassin to process the message and return a response.
+//
 // *Syntax:* io_error_action _action_ ++
 // *Default:* ignore
 //
