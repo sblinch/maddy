@@ -143,7 +143,7 @@ func (d *MsgPipeline) Start(ctx context.Context, msgMeta *module.MsgMetadata, ma
 func (dd *msgpipelineDelivery) start(ctx context.Context, msgMeta *module.MsgMetadata, mailFrom string) error {
 	var err error
 
-	dd.checkRunner.safelisted = dd.checkRunner.checkSafelist(ctx, dd.d.globalChecks, msgMeta)
+	dd.checkRunner.checkSafelist(ctx, dd.d.globalChecks, msgMeta)
 
 	if err := dd.checkRunner.checkConnSender(ctx, dd.d.globalChecks, mailFrom); err != nil {
 		return err
@@ -163,7 +163,7 @@ func (dd *msgpipelineDelivery) start(ctx context.Context, msgMeta *module.MsgMet
 	}
 	dd.sourceBlock = sourceBlock
 
-	dd.checkRunner.safelisted = dd.checkRunner.safelisted || dd.checkRunner.checkSafelist(ctx, sourceBlock.checks, msgMeta)
+	dd.checkRunner.checkSafelist(ctx, sourceBlock.checks, msgMeta)
 
 	if err := dd.checkRunner.checkConnSender(ctx, sourceBlock.checks, mailFrom); err != nil {
 		return err

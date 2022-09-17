@@ -124,6 +124,12 @@ type SafelistCheckResult struct {
 	// unconditionally permitted, ignoring all other checks.
 	Safelist bool
 
+	// RequiresAuthResults specifies that even if Safelist is true,
+	// the message must still pass SPF/DKIM/DMARC checks. This ensures
+	// that safelisting by domain name doesn't permit spammers to
+	// bypass checks by simply forging the mail-from address.
+	RequiresAuthResults bool
+
 	// Header is the header fields that should be
 	// added to the header after all checks.
 	Header textproto.Header

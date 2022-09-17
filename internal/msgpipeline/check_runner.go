@@ -53,8 +53,10 @@ type checkRunner struct {
 
 	states map[module.Check]module.CheckState
 
-	safelisted bool
-	mergedRes  module.CheckResult
+	safelisted                  bool
+	safelistRequiresAuthResults bool
+
+	mergedRes module.CheckResult
 }
 
 func newCheckRunner(msgMeta *module.MsgMetadata, log log.Logger, r dns.Resolver) *checkRunner {
@@ -69,10 +71,6 @@ func newCheckRunner(msgMeta *module.MsgMetadata, log log.Logger, r dns.Resolver)
 }
 
 func (cr *checkRunner) checkStates(ctx context.Context, checks []module.Check) ([]module.CheckState, error) {
-	if cr.safelisted {
-		return []module.CheckState{}, nil
-	}
-
 	states := make([]module.CheckState, 0, len(checks))
 	newStates := make([]module.CheckState, 0, len(checks))
 	newStatesMap := make(map[module.Check]module.CheckState, len(checks))
@@ -165,6 +163,12 @@ func (cr *checkRunner) checkStates(ctx context.Context, checks []module.Check) (
 }
 
 func (cr *checkRunner) runAndMergeResults(states []module.CheckState, runner func(module.CheckState) module.CheckResult) error {
+	if cr.safelisted && !cr.safelistRequiresAuthResults {
+		// If safelisted and we aren't waiting for SPF/DKIM/DMARC results, don't
+		// bother running checks.
+		return nil
+	}
+
 	data := struct {
 		authResLock sync.Mutex
 		headerLock  sync.Mutex
@@ -200,7 +204,16 @@ func (cr *checkRunner) runAndMergeResults(states []module.CheckState, runner fun
 				data.authResLock.Lock()
 				cr.mergedRes.AuthResult = append(cr.mergedRes.AuthResult, subCheckRes.AuthResult...)
 				data.authResLock.Unlock()
+
+				// if this subcheck didn't return an AuthResult and the
+				// message is safelisted, we can ignore the results
+			} else if cr.safelisted {
+				if subCheckRes.Reason != nil {
+					cr.log.DebugMsg("check result ignored due to safelist", "reason", subCheckRes.Reason)
+				}
+				return
 			}
+
 			if subCheckRes.Header.Len() != 0 {
 				data.headerLock.Lock()
 				for field := subCheckRes.Header.Fields(); field.Next(); {
@@ -243,7 +256,7 @@ func (cr *checkRunner) runAndMergeResults(states []module.CheckState, runner fun
 	return nil
 }
 
-func (cr *checkRunner) checkSafelist(ctx context.Context, checks []module.Check, msgMeta *module.MsgMetadata) bool {
+func (cr *checkRunner) checkSafelist(ctx context.Context, checks []module.Check, msgMeta *module.MsgMetadata) {
 	for _, check := range checks {
 		safelistCheck, ok := check.(module.SafelistCheck)
 		if ok {
@@ -259,12 +272,21 @@ func (cr *checkRunner) checkSafelist(ctx context.Context, checks []module.Check,
 			}
 
 			if safelistResult.Safelist {
-				return true
+				if cr.safelisted {
+					cr.safelistRequiresAuthResults = cr.safelistRequiresAuthResults && safelistResult.RequiresAuthResults
+				} else {
+					cr.safelistRequiresAuthResults = safelistResult.RequiresAuthResults
+				}
+				cr.safelisted = true
+
+				// If any check indicates that the message is safelisted AND
+				// does not require SPF/DKIM, we can stop here.
+				if !cr.safelistRequiresAuthResults {
+					break
+				}
 			}
 		}
 	}
-
-	return false
 }
 
 func (cr *checkRunner) checkConnSender(ctx context.Context, checks []module.Check, mailFrom string) error {
