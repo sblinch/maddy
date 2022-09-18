@@ -20,6 +20,7 @@ package geobl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"runtime/trace"
@@ -43,11 +44,13 @@ type GeoBL struct {
 	modName  string
 	log      log.Logger
 
-	checkEarly         bool
-	failOpen           bool
-	mmdbPath           string
-	blocklistCountries map[string]struct{}
-	failAction         modconfig.FailAction
+	checkEarly     bool
+	failOpen       bool
+	mmdbPath       string
+	blockCountries map[string]struct{}
+	allowCountries map[string]struct{}
+	failAction     modconfig.FailAction
+	errorAction    modconfig.FailAction
 
 	geoipReader *geoip2.CountryReader
 }
@@ -79,12 +82,17 @@ func (g *GeoBL) InstanceName() string {
 }
 
 func (g *GeoBL) Init(cfg *config.Map) error {
-	blocklistCountries := []string{}
+	blockCountries, allowCountries := []string{}, []string{}
 	cfg.Bool("debug", false, false, &g.log.Debug)
 	cfg.String("mmdb_pathname", true, true, g.mmdbPath, &g.mmdbPath)
-	cfg.StringList("blocklist_countries", true, true, []string{}, &blocklistCountries)
+	cfg.StringList("allow_countries", true, false, []string{}, &allowCountries)
+	cfg.StringList("block_countries", true, false, []string{}, &blockCountries)
 	cfg.Bool("check_early", true, false, &g.checkEarly)
-	cfg.Bool("fail_open", true, false, &g.failOpen)
+	cfg.Custom("error_action", false, false,
+		func() (interface{}, error) {
+			return modconfig.FailAction{Quarantine: true}, nil
+		}, modconfig.FailActionDirective, &g.errorAction)
+
 	cfg.Custom("fail_action", false, false,
 		func() (interface{}, error) {
 			return modconfig.FailAction{Quarantine: true}, nil
@@ -94,11 +102,25 @@ func (g *GeoBL) Init(cfg *config.Map) error {
 		return err
 	}
 
-	g.blocklistCountries = make(map[string]struct{}, len(blocklistCountries))
-	for _, country := range blocklistCountries {
-		g.blocklistCountries[country] = struct{}{}
+	if len(blockCountries) > 0 {
+		if len(allowCountries) > 0 {
+			return fmt.Errorf("%s: cannot specify both a block and allow list", g.modName)
+		}
+		g.blockCountries = make(map[string]struct{}, len(blockCountries))
+		for _, country := range blockCountries {
+			g.blockCountries[country] = struct{}{}
+		}
+		g.log.DebugMsg("blocked countries", "codes", blockCountries)
+
+	} else if len(allowCountries) > 0 {
+		g.allowCountries = make(map[string]struct{}, len(allowCountries))
+		for _, country := range allowCountries {
+			g.allowCountries[country] = struct{}{}
+		}
+		g.log.DebugMsg("allowed countries", "codes", allowCountries)
+	} else {
+		return fmt.Errorf("%s: must specify a block or allow list", g.modName)
 	}
-	g.log.DebugMsg("countries on blocklist", "list", blocklistCountries)
 
 	var err error
 	if g.geoipReader, err = geoip2.NewCountryReaderFromFile(g.mmdbPath); err != nil {
@@ -114,40 +136,58 @@ type state struct {
 	log     log.Logger
 }
 
+var (
+	errCountryUnknown    = errors.New("IP country is unknown")
+	errCountryBlocked    = errors.New("client is connecting from a blocked country")
+	errCountryNotAllowed = errors.New("client is not connecting from an allowed country")
+)
+
 func (g *GeoBL) checkIP(ip net.IP) module.CheckResult {
 	result, err := g.geoipReader.Lookup(ip)
 
+	if err == nil && (result.Country.ISOCode == "Unknown" || result.Country.ISOCode == "None") {
+		err = errCountryUnknown
+	}
+
 	if err != nil {
-		if g.failOpen {
-			return module.CheckResult{}
-		} else {
-			return module.CheckResult{
-				Reject: true,
-				Reason: &exterrors.SMTPError{
-					Code:         exterrors.SMTPCode(err, 451, 554),
-					EnhancedCode: exterrors.SMTPEnchCode(err, exterrors.EnhancedCode{0, 7, 0}),
-					Message:      "Error during policy check",
-					Err:          err,
-					CheckName:    modName,
-				},
-			}
+		g.log.DebugMsg("error looking up sender country", "error", err.Error())
+		return g.errorAction.Apply(module.CheckResult{
+			Reason: &exterrors.SMTPError{
+				Code:         554,
+				EnhancedCode: exterrors.EnhancedCode{0, 7, 0},
+				Message:      "Error during policy check",
+				Err:          err,
+				CheckName:    modName,
+				Misc:         map[string]interface{}{"geobl-address": ip.String()},
+			},
+		})
+	}
+
+	if g.blockCountries != nil {
+		if _, blocked := g.blockCountries[result.Country.ISOCode]; blocked {
+			g.log.DebugMsg("sender country is blocked", "country", result.Country.ISOCode)
+			err = errCountryBlocked
+		}
+	} else {
+		if _, allowed := g.allowCountries[result.Country.ISOCode]; !allowed {
+			g.log.DebugMsg("sender country is not allowed", "country", result.Country.ISOCode)
+			err = errCountryNotAllowed
 		}
 	}
 
-	if _, blocklisted := g.blocklistCountries[result.Country.ISOCode]; blocklisted {
+	if err != nil {
 		return g.failAction.Apply(module.CheckResult{
 			Reason: &exterrors.SMTPError{
 				Code:         554,
 				EnhancedCode: exterrors.EnhancedCode{5, 7, 0},
-				Message:      "Client is connecting from a blocklisted country",
 				Err:          err,
 				CheckName:    modName,
 				Misc:         map[string]interface{}{"geobl-country": result.Country.ISOCode, "geobl-address": ip.String()},
 			},
 		})
-	} else {
-		g.log.DebugMsg("sender country is permitted", "country", result.Country.ISOCode)
 	}
+
+	g.log.DebugMsg("sender country is permitted", "country", result.Country.ISOCode)
 
 	return module.CheckResult{}
 }

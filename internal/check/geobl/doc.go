@@ -33,20 +33,24 @@
 //
 // Path and filename to the MMDB country database to use for geoIP lookups.
 //
-// *Syntax*: blocklist_countries _list_ ++
+// *Syntax*: block_countries _list_ ++
 //
 // List of two-character ISO3166-2 country codes to be blocked.
+//
+// *Syntax*: allow_countries _list_ ++
+//
+// List of two-character ISO3166-2 country codes to be allowed; all other
+// country codes will be blocked. (Mutually-exclusive with block_countries.)
 //
 // *Syntax*: fail_action _action_ ++
 // *Default*: quarantine
 //
-// Action to perform if the sender is connecting from a country on the
-// blocklist.
+// Action to perform if the sender is connecting from a blocked country.
 //
-// *Syntax*: fail_open _boolean_ ++
-// *Default*: yes
+// *Syntax*: error_action _action_ ++
+// *Default*: quarantine
 //
-// Whether to accept the message if the country is not in the geoIP database
-// or the geoIP database cannot be accessed.
+// Action to perform if the IP address is not in the geoIP database or the
+// geoIP database cannot be accessed.
 //
 package geobl
